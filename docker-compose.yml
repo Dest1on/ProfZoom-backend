@@ -1,15 +1,32 @@
+version: "3.9"
+
 services:
+  # Основной backend-сервис
   api:
     build:
-      context: .
+      context: ./Profzom
       dockerfile: docker/api/Dockerfile
     ports:
       - "8080:8080"
     env_file:
-      - .env
+      - ./Profzom/.env
+    depends_on:
+      - postgres
+      - otp-bot
+
+  # Мигратор для основного сервиса
+  migrator:
+    build:
+      context: ./Profzom
+      dockerfile: docker/migrator/Dockerfile
+    volumes:
+      - ./Profzom/migrations:/migrations
+    env_file:
+      - ./Profzom/.env
     depends_on:
       - postgres
 
+  # PostgreSQL
   postgres:
     image: postgres:16
     restart: always
@@ -22,16 +39,15 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  migrator:
+  # OTP Telegram бот
+  otp-bot:
     build:
-      context: .
-      dockerfile: docker/migrator/Dockerfile
-    volumes:
-      - ./migrations:/migrations
+      context: ./OTP_bot
+      dockerfile: cmd/server/Dockerfile
     env_file:
-      - .env
-    depends_on:
-      - postgres
+      - ./OTP_bot/.env
+    ports:
+      - "8081:8080"
 
 volumes:
   postgres_data:
