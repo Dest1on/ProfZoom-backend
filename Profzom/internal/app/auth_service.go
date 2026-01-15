@@ -12,6 +12,7 @@ import (
 	"profzom/internal/common"
 	"profzom/internal/domain/analytics"
 	"profzom/internal/domain/auth"
+	"profzom/internal/domain/telegram"
 	"profzom/internal/domain/user"
 	"profzom/internal/integration/otpbot"
 	"profzom/internal/security"
@@ -25,6 +26,7 @@ type AuthService struct {
 	analytics     analytics.Repository
 	jwtProvider   *security.JWTProvider
 	otpBot        otpbot.Client
+	telegramLinks telegram.LinkRepository
 	logger        Logger
 	accessTTL     time.Duration
 	refreshTTL    time.Duration
@@ -50,11 +52,18 @@ func NewAuthService(users user.Repository, otp auth.OTPRepository, refreshTokens
 		analytics:     analytics,
 		jwtProvider:   jwtProvider,
 		otpBot:        otpBot,
+		telegramLinks: nil,
 		logger:        logger,
 		accessTTL:     accessTTL,
 		refreshTTL:    refreshTTL,
 		otpTTL:        otpTTL,
 	}
+}
+
+func NewAuthServiceWithTelegramLinks(users user.Repository, otp auth.OTPRepository, refreshTokens auth.RefreshTokenRepository, analytics analytics.Repository, jwtProvider *security.JWTProvider, otpBot otpbot.Client, telegramLinks telegram.LinkRepository, logger Logger, accessTTL, refreshTTL, otpTTL time.Duration) *AuthService {
+	service := NewAuthService(users, otp, refreshTokens, analytics, jwtProvider, otpBot, logger, accessTTL, refreshTTL, otpTTL)
+	service.telegramLinks = telegramLinks
+	return service
 }
 
 type OTPRequestResult struct {
@@ -63,16 +72,12 @@ type OTPRequestResult struct {
 }
 
 func (s *AuthService) RequestOTP(ctx context.Context, phone string) (*OTPRequestResult, error) {
-	account, err := s.users.FindByPhone(ctx, phone)
+	if err := s.otp.DeleteExpired(ctx, time.Now().UTC().Unix()); err != nil {
+		return nil, err
+	}
+	account, err := s.loadOrCreateUser(ctx, phone)
 	if err != nil {
-		if common.Is(err, common.CodeNotFound) {
-			account, err = s.users.Create(ctx, phone)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, err
-		}
+		return nil, err
 	}
 	s.logInfo(fmt.Sprintf("otp request started user_id=%s", account.ID))
 	state, err := s.otp.GetState(ctx, phone)
@@ -122,6 +127,56 @@ func (s *AuthService) RequestOTP(ctx context.Context, phone string) (*OTPRequest
 	return nil, nil
 }
 
+type OTPRequestPayload struct {
+	Code      string
+	ExpiresAt time.Time
+	Phone     string
+}
+
+func (s *AuthService) RequestOTPByTelegram(ctx context.Context, chatID int64) (*OTPRequestPayload, error) {
+	if s.telegramLinks == nil {
+		return nil, common.NewError(common.CodeInternal, "telegram link repository not configured", nil)
+	}
+	link, err := s.telegramLinks.GetByChatID(ctx, chatID)
+	if err != nil {
+		if common.Is(err, common.CodeNotFound) {
+			return nil, common.NewError(common.CodeTelegramNotLinked, "telegram not linked", nil)
+		}
+		return nil, err
+	}
+	if link.Phone == "" {
+		return nil, common.NewError(common.CodeTelegramNotLinked, "telegram not linked", nil)
+	}
+	if err := s.otp.DeleteExpired(ctx, time.Now().UTC().Unix()); err != nil {
+		return nil, err
+	}
+	account, err := s.loadOrCreateUser(ctx, link.Phone)
+	if err != nil {
+		return nil, err
+	}
+	s.logInfo(fmt.Sprintf("otp request started user_id=%s", account.ID))
+	state, err := s.otp.GetState(ctx, link.Phone)
+	if err != nil {
+		return nil, err
+	}
+	if state != nil {
+		requestedAt := time.Unix(state.RequestedAt, 0).UTC()
+		if time.Since(requestedAt) < otpMinInterval {
+			return nil, common.NewError(common.CodeValidation, "otp requested too frequently", nil)
+		}
+	}
+	code, err := generateOTP()
+	if err != nil {
+		return nil, common.NewError(common.CodeInternal, "failed to generate otp", err)
+	}
+	expiresAt := time.Now().UTC().Add(s.otpTTL)
+	if err := s.otp.UpsertCode(ctx, link.Phone, code, expiresAt.Unix(), otpMaxAttempts); err != nil {
+		return nil, err
+	}
+	_ = s.analytics.Create(ctx, analytics.Event{Name: "auth.otp_requested", Payload: analyticsPayload(ctx, map[string]string{"phone": link.Phone})})
+	return &OTPRequestPayload{Code: code, ExpiresAt: expiresAt, Phone: link.Phone}, nil
+}
+
 func (s *AuthService) VerifyOTP(ctx context.Context, phone, code string) (*auth.TokenPair, *user.User, bool, error) {
 	ok, err := s.otp.VerifyCode(ctx, phone, code, time.Now().UTC().Unix())
 	if err != nil {
@@ -147,6 +202,23 @@ func (s *AuthService) VerifyOTP(ctx context.Context, phone, code string) (*auth.
 	_ = s.analytics.Create(ctx, analytics.Event{Name: "auth.logged_in", UserID: &account.ID, Payload: analyticsPayload(ctx, map[string]string{"user_id": account.ID.String()})})
 	s.logInfo(fmt.Sprintf("user logged in user_id=%s", account.ID))
 	return pair, account, isNewUser, nil
+}
+
+func (s *AuthService) VerifyOTPByTelegram(ctx context.Context, chatID int64, code string) (*auth.TokenPair, *user.User, bool, error) {
+	if s.telegramLinks == nil {
+		return nil, nil, false, common.NewError(common.CodeInternal, "telegram link repository not configured", nil)
+	}
+	link, err := s.telegramLinks.GetByChatID(ctx, chatID)
+	if err != nil {
+		if common.Is(err, common.CodeNotFound) {
+			return nil, nil, false, common.NewError(common.CodeTelegramNotLinked, "telegram not linked", nil)
+		}
+		return nil, nil, false, err
+	}
+	if link.Phone == "" {
+		return nil, nil, false, common.NewError(common.CodeTelegramNotLinked, "telegram not linked", nil)
+	}
+	return s.VerifyOTP(ctx, link.Phone, code)
 }
 
 func (s *AuthService) Refresh(ctx context.Context, token string) (*auth.TokenPair, error) {
@@ -246,6 +318,21 @@ func maskPhone(phone string) string {
 		return prefix + strings.Repeat("*", len(trimmed))
 	}
 	return prefix + strings.Repeat("*", len(trimmed)-4) + trimmed[len(trimmed)-4:]
+}
+
+func (s *AuthService) loadOrCreateUser(ctx context.Context, phone string) (*user.User, error) {
+	account, err := s.users.FindByPhone(ctx, phone)
+	if err != nil {
+		if common.Is(err, common.CodeNotFound) {
+			account, err = s.users.Create(ctx, phone)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
+	}
+	return account, nil
 }
 
 func (s *AuthService) logInfo(msg string) {

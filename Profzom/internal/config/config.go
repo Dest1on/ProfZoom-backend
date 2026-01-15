@@ -34,7 +34,7 @@ func Load() *Config {
 		OTPBotTelegramUsername: getEnv("OTP_BOT_TELEGRAM_USERNAME", ""),
 		AccessTokenTTL:    getDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL:   getDuration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
-		OTPTTL:            getDuration("OTP_TTL", 2*time.Minute),
+		OTPTTL:            getDuration("OTP_TTL", 5*time.Minute),
 		DBMaxOpenConns:    getInt("DB_MAX_OPEN_CONNS", 25),
 		DBMaxIdleConns:    getInt("DB_MAX_IDLE_CONNS", 10),
 		DBConnMaxIdle:     getDuration("DB_CONN_MAX_IDLE", 5*time.Minute),

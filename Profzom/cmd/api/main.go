@@ -39,6 +39,7 @@ func main() {
 	otpRepo := postgres.NewOTPRepository(db)
 	refreshRepo := postgres.NewRefreshTokenRepository(db)
 	analyticsRepo := postgres.NewAnalyticsRepository(db)
+	telegramLinkRepo := postgres.NewTelegramLinkRepository(db)
 	studentRepo := postgres.NewStudentProfileRepository(db)
 	companyRepo := postgres.NewCompanyProfileRepository(db)
 	vacancyRepo := postgres.NewVacancyRepository(db)
@@ -48,7 +49,7 @@ func main() {
 	jwtProvider := security.NewJWTProvider(cfg.JWTSecret)
 	otpBotClient := otpbot.NewClient(cfg.OTPBotBaseURL, cfg.OTPBotInternalKey, &http.Client{Timeout: 5 * time.Second})
 
-	authService := app.NewAuthService(userRepo, otpRepo, refreshRepo, analyticsRepo, jwtProvider, otpBotClient, logger, cfg.AccessTokenTTL, cfg.RefreshTokenTTL, cfg.OTPTTL)
+	authService := app.NewAuthServiceWithTelegramLinks(userRepo, otpRepo, refreshRepo, analyticsRepo, jwtProvider, otpBotClient, telegramLinkRepo, logger, cfg.AccessTokenTTL, cfg.RefreshTokenTTL, cfg.OTPTTL)
 	userService := app.NewUserService(userRepo, analyticsRepo)
 	profileService := app.NewProfileService(studentRepo, companyRepo, analyticsRepo)
 	vacancyService := app.NewVacancyService(vacancyRepo, companyRepo, analyticsRepo)
@@ -56,7 +57,7 @@ func main() {
 	messageService := app.NewMessageService(messageRepo, applicationRepo, vacancyRepo, analyticsRepo)
 
 	rateLimiter := httpmw.NewRateLimiter()
-	authHandler := handlers.NewAuthHandler(authService, rateLimiter, cfg.OTPBotTelegramUsername)
+	authHandler := handlers.NewAuthHandler(authService, rateLimiter, cfg.OTPBotTelegramUsername, cfg.OTPBotInternalKey)
 	userHandler := handlers.NewUserHandler(userService)
 	profileHandler := handlers.NewProfileHandler(profileService)
 	vacancyHandler := handlers.NewVacancyHandler(vacancyService)

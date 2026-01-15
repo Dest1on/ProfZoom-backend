@@ -12,6 +12,7 @@ import (
 
 	"otp_bot/internal/config"
 	"otp_bot/internal/httpapi"
+	"otp_bot/internal/integration/profzom"
 	"otp_bot/internal/linking"
 	"otp_bot/internal/logging"
 	"otp_bot/internal/observability"
@@ -31,6 +32,7 @@ func Run() error {
 	slog.SetDefault(logger)
 
 	telegramClient := telegram.NewClient(cfg.BotToken, &http.Client{Timeout: cfg.TelegramTimeout})
+	apiClient := profzom.NewClient(cfg.APIBaseURL, cfg.APIInternalKey, &http.Client{Timeout: cfg.APITimeout})
 
 	var db *sql.DB
 	var linkStore linking.TelegramLinkStore
@@ -54,7 +56,7 @@ func Run() error {
 	linker := linking.NewTelegramLinker(linkTokenStore, linkStore, hashSecret)
 	linkRegistrar := linking.NewLinkTokenRegistrar(linkTokenStore, cfg.LinkTokenTTL, hashSecret)
 	botLinkStore := linking.NewBotLinkStore(linkStore)
-	bot := telegram.NewBot(telegramClient, linker, botLinkStore, logger)
+	bot := telegram.NewBot(telegramClient, linker, botLinkStore, apiClient, logger)
 	webhookHandler := telegram.NewWebhookHandler(bot, cfg.WebhookSecret, logger)
 
 	otpPerChatLimiter := ratelimit.NewMemoryLimiter(cfg.OTPSendPerMin, time.Minute)

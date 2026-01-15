@@ -27,8 +27,20 @@ func NewPostgres(cfg PostgresConfig) *sql.DB {
 	db.SetConnMaxIdleTime(cfg.ConnMaxIdle)
 	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 
-	if err := db.Ping(); err != nil {
-		log.Fatalf("failed to ping postgres: %v", err)
+	deadline := time.Now().Add(30 * time.Second)
+	backoff := 500 * time.Millisecond
+	for {
+		if err := db.Ping(); err == nil {
+			break
+		} else if time.Now().After(deadline) {
+			log.Fatalf("failed to ping postgres: %v", err)
+		} else {
+			log.Printf("postgres not ready yet: %v", err)
+			time.Sleep(backoff)
+			if backoff < 5*time.Second {
+				backoff *= 2
+			}
+		}
 	}
 
 	return db

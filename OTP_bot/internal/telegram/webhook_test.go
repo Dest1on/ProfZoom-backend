@@ -17,7 +17,7 @@ func (stubVerifier) VerifyAndLink(ctx context.Context, token string, chatID int6
 
 func TestWebhookUnauthorized(t *testing.T) {
 	sender := &fakeSender{}
-	bot := NewBot(sender, stubVerifier{}, nil, slog.Default())
+	bot := NewBot(sender, stubVerifier{}, nil, nil, slog.Default())
 	handler := NewWebhookHandler(bot, "secret", slog.Default())
 
 	req := httptest.NewRequest(http.MethodPost, "/telegram/webhook", bytes.NewBufferString(`{"update_id":1}`))
@@ -31,7 +31,7 @@ func TestWebhookUnauthorized(t *testing.T) {
 
 func TestWebhookSuccess(t *testing.T) {
 	sender := &fakeSender{}
-	bot := NewBot(sender, stubVerifier{}, nil, slog.Default())
+	bot := NewBot(sender, stubVerifier{}, nil, nil, slog.Default())
 	handler := NewWebhookHandler(bot, "secret", slog.Default())
 
 	payload := `{"update_id":1,"message":{"message_id":1,"chat":{"id":12,"type":"private"},"text":"/start verify_token"}}`

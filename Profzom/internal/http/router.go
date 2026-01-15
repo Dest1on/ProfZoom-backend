@@ -51,6 +51,9 @@ func (r *Router) baseHandler() http.Handler {
 		case req.Method == http.MethodGet && path == "/metrics":
 			r.deps.MetricsHandler.Get(w, req)
 			return
+		case req.Method == http.MethodPost && path == "/auth/request-code":
+			r.deps.AuthHandler.RequestOTPByTelegram(w, req)
+			return
 		case req.Method == http.MethodPost && path == "/auth/send-code":
 			r.deps.AuthHandler.RequestOTP(w, req)
 			return

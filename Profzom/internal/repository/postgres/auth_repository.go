@@ -97,6 +97,14 @@ func (r *OTPRepository) InvalidateCode(ctx context.Context, phone string) error 
 	return nil
 }
 
+func (r *OTPRepository) DeleteExpired(ctx context.Context, beforeUnix int64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM otp_codes WHERE expires_at < $1`, time.Unix(beforeUnix, 0).UTC())
+	if err != nil {
+		return common.NewError(common.CodeInternal, "failed to delete expired otp", err)
+	}
+	return nil
+}
+
 type RefreshTokenRepository struct {
 	db *sql.DB
 }

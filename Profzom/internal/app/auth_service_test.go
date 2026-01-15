@@ -12,6 +12,7 @@ import (
 	"profzom/internal/common"
 	"profzom/internal/domain/analytics"
 	"profzom/internal/domain/auth"
+	"profzom/internal/domain/telegram"
 	"profzom/internal/domain/user"
 	"profzom/internal/integration/otpbot"
 	"profzom/internal/security"
@@ -89,6 +90,17 @@ func (r *fakeOTPRepo) InvalidateCode(ctx context.Context, phone string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.entries, phone)
+	return nil
+}
+
+func (r *fakeOTPRepo) DeleteExpired(ctx context.Context, beforeUnix int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for phone, entry := range r.entries {
+		if entry.expiresAt <= beforeUnix {
+			delete(r.entries, phone)
+		}
+	}
 	return nil
 }
 
@@ -220,6 +232,38 @@ type noopAnalyticsRepo struct{}
 
 func (noopAnalyticsRepo) Create(ctx context.Context, event analytics.Event) error {
 	return nil
+}
+
+type fakeTelegramLinkRepo struct {
+	mu    sync.Mutex
+	links map[int64]*telegram.Link
+}
+
+func newFakeTelegramLinkRepo() *fakeTelegramLinkRepo {
+	return &fakeTelegramLinkRepo{links: make(map[int64]*telegram.Link)}
+}
+
+func (r *fakeTelegramLinkRepo) GetByChatID(ctx context.Context, chatID int64) (*telegram.Link, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	link := r.links[chatID]
+	if link == nil {
+		return nil, common.NewError(common.CodeNotFound, "telegram link not found", nil)
+	}
+	copy := *link
+	return &copy, nil
+}
+
+func (r *fakeTelegramLinkRepo) GetByPhone(ctx context.Context, phone string) (*telegram.Link, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, link := range r.links {
+		if link.Phone == phone {
+			copy := *link
+			return &copy, nil
+		}
+	}
+	return nil, common.NewError(common.CodeNotFound, "telegram link not found", nil)
 }
 
 type fakeOTPBot struct {
@@ -460,6 +504,52 @@ func TestAuthServiceVerifyOTP_AttemptsExceeded(t *testing.T) {
 	}
 	if _, ok := otpRepo.entries[phone]; ok {
 		t.Fatal("expected otp to be invalidated after attempts")
+	}
+}
+
+func TestAuthServiceRequestOTPByTelegram(t *testing.T) {
+	otpRepo := newFakeOTPRepo()
+	userRepo := newFakeUserRepo()
+	refreshRepo := newFakeRefreshTokenRepo()
+	linkRepo := newFakeTelegramLinkRepo()
+	linkRepo.links[42] = &telegram.Link{ChatID: 42, Phone: "+79991234567", UserID: "user-1"}
+	jwtProvider := security.NewJWTProvider("secret")
+	service := NewAuthServiceWithTelegramLinks(userRepo, otpRepo, refreshRepo, noopAnalyticsRepo{}, jwtProvider, nil, linkRepo, nil, time.Minute, time.Hour, 5*time.Minute)
+
+	result, err := service.RequestOTPByTelegram(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if result == nil || result.Code == "" {
+		t.Fatalf("expected otp code, got %#v", result)
+	}
+	if !regexp.MustCompile(`^[0-9]{6}$`).MatchString(result.Code) {
+		t.Fatalf("expected 6 digit code, got %q", result.Code)
+	}
+	if otpRepo.entries["+79991234567"] == nil {
+		t.Fatal("expected otp to be stored")
+	}
+}
+
+func TestAuthServiceVerifyOTPByTelegram(t *testing.T) {
+	otpRepo := newFakeOTPRepo()
+	userRepo := newFakeUserRepo()
+	refreshRepo := newFakeRefreshTokenRepo()
+	linkRepo := newFakeTelegramLinkRepo()
+	linkRepo.links[7] = &telegram.Link{ChatID: 7, Phone: "+79990000000", UserID: "user-1"}
+	jwtProvider := security.NewJWTProvider("secret")
+	service := NewAuthServiceWithTelegramLinks(userRepo, otpRepo, refreshRepo, noopAnalyticsRepo{}, jwtProvider, nil, linkRepo, nil, time.Minute, time.Hour, 5*time.Minute)
+
+	req, err := service.RequestOTPByTelegram(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("request otp failed: %v", err)
+	}
+	pair, _, _, err := service.VerifyOTPByTelegram(context.Background(), 7, req.Code)
+	if err != nil {
+		t.Fatalf("verify otp failed: %v", err)
+	}
+	if pair == nil || pair.AccessToken == "" || pair.RefreshToken == "" {
+		t.Fatal("expected token pair to be issued")
 	}
 }
 

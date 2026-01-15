@@ -13,11 +13,14 @@ type Config struct {
 	BotToken                    string
 	WebhookSecret               string
 	InternalAuthKey             string
+	APIBaseURL                  string
+	APIInternalKey              string
 	DatabaseURL                 string
 	DBDriver                    string
 	Port                        string
 	LogLevel                    string
 	TelegramTimeout             time.Duration
+	APITimeout                  time.Duration
 	OTPSendPerMin               int
 	OTPSendIPPerMin             int
 	OTPSendBotPerMin            int
@@ -37,6 +40,7 @@ func Load() (Config, error) {
 		Port:                        envOr("PORT", "8080"),
 		LogLevel:                    envOr("LOG_LEVEL", "info"),
 		TelegramTimeout:             durationOr("TELEGRAM_TIMEOUT", 5*time.Second),
+		APITimeout:                  durationOr("API_TIMEOUT", 5*time.Second),
 		OTPSendPerMin:               otpPerMin,
 		OTPSendIPPerMin:             intOr("OTP_RATE_LIMIT_IP_PER_MIN", otpPerMin),
 		OTPSendBotPerMin:            otpBotPerMin,
@@ -50,8 +54,13 @@ func Load() (Config, error) {
 	cfg.BotToken = strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	cfg.WebhookSecret = strings.TrimSpace(os.Getenv("TELEGRAM_WEBHOOK_SECRET"))
 	cfg.InternalAuthKey = strings.TrimSpace(os.Getenv("OTP_BOT_INTERNAL_KEY"))
+	cfg.APIBaseURL = strings.TrimSpace(os.Getenv("API_BASE_URL"))
+	cfg.APIInternalKey = strings.TrimSpace(os.Getenv("API_INTERNAL_KEY"))
 	if cfg.InternalAuthKey == "" {
 		cfg.InternalAuthKey = strings.TrimSpace(os.Getenv("INTERNAL_AUTH_KEY"))
+	}
+	if cfg.APIInternalKey == "" {
+		cfg.APIInternalKey = cfg.InternalAuthKey
 	}
 	cfg.DatabaseURL = strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	cfg.DBDriver = strings.ToLower(cfg.DBDriver)
@@ -65,6 +74,9 @@ func Load() (Config, error) {
 	}
 	if cfg.InternalAuthKey == "" {
 		missing = append(missing, "OTP_BOT_INTERNAL_KEY")
+	}
+	if cfg.APIBaseURL == "" {
+		missing = append(missing, "API_BASE_URL")
 	}
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("missing required env vars: %s", strings.Join(missing, ", "))

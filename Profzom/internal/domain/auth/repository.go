@@ -11,6 +11,7 @@ type OTPRepository interface {
 	VerifyCode(ctx context.Context, phone, code string, nowUnix int64) (bool, error)
 	GetState(ctx context.Context, phone string) (*OTPState, error)
 	InvalidateCode(ctx context.Context, phone string) error
+	DeleteExpired(ctx context.Context, beforeUnix int64) error
 }
 
 type OTPState struct {

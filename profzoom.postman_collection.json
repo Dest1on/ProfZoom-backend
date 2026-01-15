@@ -1,0 +1,169 @@
+{
+  "info": {
+    "name": "ProfZoom Services",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "api_base_url", "value": "http://localhost:8080" },
+    { "key": "otp_base_url", "value": "http://localhost:8081" },
+    { "key": "otp_internal_key", "value": "super-secret-internal-key" },
+    { "key": "phone", "value": "+79991234567" },
+    { "key": "otp_code", "value": "123456" },
+    { "key": "telegram_id", "value": "123456789" },
+    { "key": "telegram_link_token", "value": "test_link_token" },
+    { "key": "telegram_webhook_secret", "value": "change-me" },
+    { "key": "vacancy_id", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "API (Profzom)",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": "{{api_base_url}}/health"
+          }
+        },
+        {
+          "name": "Request OTP (phone)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"{{phone}}\"\n}"
+            },
+            "url": "{{api_base_url}}/auth/send-code"
+          }
+        },
+        {
+          "name": "Verify OTP (phone)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"code\": \"{{otp_code}}\"\n}"
+            },
+            "url": "{{api_base_url}}/auth/verify-code"
+          }
+        },
+        {
+          "name": "Request OTP (telegram_id, internal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{otp_internal_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telegram_id\": {{telegram_id}}\n}"
+            },
+            "url": "{{api_base_url}}/auth/request-code"
+          }
+        },
+        {
+          "name": "Verify OTP (telegram_id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telegram_id\": {{telegram_id}},\n  \"code\": \"{{otp_code}}\"\n}"
+            },
+            "url": "{{api_base_url}}/auth/verify-code"
+          }
+        },
+        {
+          "name": "Vacancies List",
+          "request": {
+            "method": "GET",
+            "url": "{{api_base_url}}/vacancies"
+          }
+        },
+        {
+          "name": "Vacancy Get",
+          "request": {
+            "method": "GET",
+            "url": "{{api_base_url}}/vacancies/{{vacancy_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "OTP_bot",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": "{{otp_base_url}}/health"
+          }
+        },
+        {
+          "name": "Register Telegram Link Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{otp_internal_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"token\": \"{{telegram_link_token}}\"\n}"
+            },
+            "url": "{{otp_base_url}}/telegram/link-token"
+          }
+        },
+        {
+          "name": "Telegram Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{otp_internal_key}}" }
+            ],
+            "url": "{{otp_base_url}}/telegram/status?phone={{phone}}"
+          }
+        },
+        {
+          "name": "Send OTP (delivery only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{otp_internal_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"code\": \"{{otp_code}}\"\n}"
+            },
+            "url": "{{otp_base_url}}/otp/send"
+          }
+        },
+        {
+          "name": "Telegram Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Telegram-Bot-Api-Secret-Token", "value": "{{telegram_webhook_secret}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"update_id\": 1,\n  \"message\": {\n    \"message_id\": 1,\n    \"chat\": { \"id\": {{telegram_id}}, \"type\": \"private\" },\n    \"text\": \"/start {{telegram_link_token}}\"\n  }\n}"
+            },
+            "url": "{{otp_base_url}}/telegram/webhook"
+          }
+        }
+      ]
+    }
+  ]
+}
