@@ -10,6 +10,7 @@ type RefreshToken struct {
 	ID        common.UUID
 	UserID    common.UUID
 	Token     string
+	Role      string
 	ExpiresAt time.Time
 	CreatedAt time.Time
 	RevokedAt *time.Time

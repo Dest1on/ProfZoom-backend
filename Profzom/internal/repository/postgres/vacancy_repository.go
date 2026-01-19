@@ -36,11 +36,15 @@ func (r *VacancyRepository) Create(ctx context.Context, v vacancy.Vacancy) (*vac
 
 func (r *VacancyRepository) Update(ctx context.Context, v vacancy.Vacancy) (*vacancy.Vacancy, error) {
 	v.UpdatedAt = time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `UPDATE vacancies SET title = $1, vacancy_type = $2, description = $3, requirements = $4, conditions = $5, salary = $6, location = $7, status = $8, updated_at = $9
+	result, err := r.db.ExecContext(ctx, `UPDATE vacancies SET title = $1, vacancy_type = $2, description = $3, requirements = $4, conditions = $5, salary = $6, location = $7, status = $8, updated_at = $9
 		WHERE id = $10 AND company_id = $11`,
 		v.Title, v.Type, v.Description, pq.Array(v.Requirements), pq.Array(v.Conditions), v.Salary, v.Location, v.Status, v.UpdatedAt, v.ID, v.CompanyID)
 	if err != nil {
 		return nil, common.NewError(common.CodeInternal, "failed to update vacancy", err)
+	}
+	rows, err := result.RowsAffected()
+	if err == nil && rows == 0 {
+		return nil, common.NewError(common.CodeNotFound, "vacancy not found", sql.ErrNoRows)
 	}
 	return &v, nil
 }
@@ -60,6 +64,27 @@ func (r *VacancyRepository) GetByID(ctx context.Context, id common.UUID) (*vacan
 func (r *VacancyRepository) ListPublished(ctx context.Context, limit, offset int) ([]vacancy.Vacancy, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id, company_id, title, vacancy_type, description, requirements, conditions, salary, location, status, created_at, updated_at
 		FROM vacancies WHERE status = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`, vacancy.StatusPublished, limit, offset)
+	if err != nil {
+		return nil, common.NewError(common.CodeInternal, "failed to list vacancies", err)
+	}
+	defer rows.Close()
+	var items []vacancy.Vacancy
+	for rows.Next() {
+		var v vacancy.Vacancy
+		if err := rows.Scan(&v.ID, &v.CompanyID, &v.Title, &v.Type, &v.Description, pq.Array(&v.Requirements), pq.Array(&v.Conditions), &v.Salary, &v.Location, &v.Status, &v.CreatedAt, &v.UpdatedAt); err != nil {
+			return nil, common.NewError(common.CodeInternal, "failed to scan vacancy", err)
+		}
+		items = append(items, v)
+	}
+	return items, nil
+}
+
+func (r *VacancyRepository) ListPublishedFiltered(ctx context.Context, limit, offset int, skills []string) ([]vacancy.Vacancy, error) {
+	if len(skills) == 0 {
+		return r.ListPublished(ctx, limit, offset)
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, company_id, title, vacancy_type, description, requirements, conditions, salary, location, status, created_at, updated_at
+		FROM vacancies WHERE status = $1 AND requirements && $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, vacancy.StatusPublished, pq.Array(skills), limit, offset)
 	if err != nil {
 		return nil, common.NewError(common.CodeInternal, "failed to list vacancies", err)
 	}

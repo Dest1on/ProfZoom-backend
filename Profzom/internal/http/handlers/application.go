@@ -8,6 +8,7 @@ import (
 	"profzom/internal/app"
 	"profzom/internal/common"
 	"profzom/internal/domain/application"
+	"profzom/internal/domain/user"
 	"profzom/internal/http/middleware"
 	"profzom/internal/http/response"
 )
@@ -88,6 +89,22 @@ func (h *ApplicationHandler) ListCompany(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	response.JSON(w, http.StatusOK, items)
+}
+
+func (h *ApplicationHandler) List(w http.ResponseWriter, r *http.Request) {
+	activeRole, ok := middleware.ActiveRoleFromContext(r.Context())
+	if !ok || activeRole == "" {
+		response.Error(w, common.NewError(common.CodeForbidden, "role not selected", nil))
+		return
+	}
+	switch activeRole {
+	case user.RoleStudent:
+		h.ListStudent(w, r)
+	case user.RoleCompany:
+		h.ListCompany(w, r)
+	default:
+		response.Error(w, common.NewError(common.CodeForbidden, "insufficient role", nil))
+	}
 }
 
 type updateStatusRequest struct {

@@ -52,7 +52,7 @@ func main() {
 	authService := app.NewAuthServiceWithTelegramLinks(userRepo, otpRepo, refreshRepo, analyticsRepo, jwtProvider, otpBotClient, telegramLinkRepo, logger, cfg.AccessTokenTTL, cfg.RefreshTokenTTL, cfg.OTPTTL)
 	userService := app.NewUserService(userRepo, analyticsRepo)
 	profileService := app.NewProfileService(studentRepo, companyRepo, analyticsRepo)
-	vacancyService := app.NewVacancyService(vacancyRepo, companyRepo, analyticsRepo)
+	vacancyService := app.NewVacancyService(vacancyRepo, companyRepo, studentRepo, analyticsRepo)
 	applicationService := app.NewApplicationService(applicationRepo, vacancyRepo, studentRepo, analyticsRepo)
 	messageService := app.NewMessageService(messageRepo, applicationRepo, vacancyRepo, analyticsRepo)
 

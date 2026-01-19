@@ -26,6 +26,7 @@ type Config struct {
 	TelegramPollingLimit        int
 	TelegramPollingDropPending  bool
 	TelegramPollingDropWebhook  bool
+	TelegramInboundRateLimit    int
 	APITimeout                  time.Duration
 	OTPSendPerMin               int
 	OTPSendIPPerMin             int
@@ -42,6 +43,7 @@ func Load() (Config, error) {
 	otpBotPerMin := intOr("OTP_RATE_LIMIT_BOT_PER_MIN", 60)
 	linkTokenPerMin := intOr("LINK_TOKEN_RATE_LIMIT_PER_MIN", 5)
 	pollingEnabled := boolOr("TELEGRAM_POLLING_ENABLED", false)
+	inboundRate := intOr("TELEGRAM_INBOUND_RATE_LIMIT_PER_MIN", 30)
 
 	cfg := Config{
 		Port:                        envOr("PORT", "8080"),
@@ -53,6 +55,7 @@ func Load() (Config, error) {
 		TelegramPollingLimit:        intOr("TELEGRAM_POLLING_LIMIT", 50),
 		TelegramPollingDropPending:  boolOr("TELEGRAM_POLLING_DROP_PENDING", true),
 		TelegramPollingDropWebhook:  boolOr("TELEGRAM_POLLING_DROP_WEBHOOK", true),
+		TelegramInboundRateLimit:    inboundRate,
 		APITimeout:                  durationOr("API_TIMEOUT", 5*time.Second),
 		OTPSendPerMin:               otpPerMin,
 		OTPSendIPPerMin:             intOr("OTP_RATE_LIMIT_IP_PER_MIN", otpPerMin),
@@ -115,6 +118,9 @@ func Load() (Config, error) {
 	}
 	if cfg.LinkTokenRateLimitBotPerMin <= 0 {
 		invalidLimits = append(invalidLimits, "LINK_TOKEN_RATE_LIMIT_BOT_PER_MIN")
+	}
+	if cfg.TelegramInboundRateLimit < 0 {
+		invalidLimits = append(invalidLimits, "TELEGRAM_INBOUND_RATE_LIMIT_PER_MIN")
 	}
 	if len(invalidLimits) > 0 {
 		return Config{}, fmt.Errorf("rate limit values must be positive: %s", strings.Join(invalidLimits, ", "))

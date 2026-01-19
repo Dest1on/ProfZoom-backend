@@ -56,10 +56,15 @@ var ErrInvalidToken = errors.New("verification token invalid or expired")
 
 // ErrLinkNotFound сообщает об отсутствии привязки Telegram.
 var ErrLinkNotFound = errors.New("telegram link not found")
+var ErrAlreadyLinked = errors.New("telegram already linked")
 
 // VerificationService проверяет токен верификации и привязывает чат Telegram.
 type VerificationService interface {
 	VerifyAndLink(ctx context.Context, token string, chatID int64) (LinkResult, error)
+}
+
+type RateLimiter interface {
+	Allow(key string) bool
 }
 
 // LinkResult описывает результат привязки чата.
@@ -86,11 +91,12 @@ type Bot struct {
 	verifier  VerificationService
 	linkStore LinkStore
 	otpClient OTPClient
+	limiter   RateLimiter
 	logger    *slog.Logger
 }
 
 // NewBot создает обработчик бота Telegram.
-func NewBot(sender Service, verifier VerificationService, linkStore LinkStore, otpClient OTPClient, logger *slog.Logger) *Bot {
+func NewBot(sender Service, verifier VerificationService, linkStore LinkStore, otpClient OTPClient, limiter RateLimiter, logger *slog.Logger) *Bot {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -99,6 +105,7 @@ func NewBot(sender Service, verifier VerificationService, linkStore LinkStore, o
 		verifier:  verifier,
 		linkStore: linkStore,
 		otpClient: otpClient,
+		limiter:   limiter,
 		logger:    logger,
 	}
 }
@@ -115,6 +122,13 @@ func (b *Bot) HandleUpdate(ctx context.Context, update Update) error {
 	}
 	if msg.Chat.Type != "" && msg.Chat.Type != "private" {
 		return nil
+	}
+	if b.limiter != nil {
+		key := fmt.Sprintf("chat:%d", msg.Chat.ID)
+		if !b.limiter.Allow(key) {
+			b.logger.Warn("telegram inbound rate limited", slog.Int64("chat_id", msg.Chat.ID))
+			return nil
+		}
 	}
 
 	if msg.Contact != nil {
@@ -189,6 +203,13 @@ func (b *Bot) handleStart(ctx context.Context, message *Message, arg string) err
 }
 
 func (b *Bot) handleLinkCode(ctx context.Context, chatID int64, token string) error {
+	if b.linkStore != nil {
+		if _, err := b.linkStore.GetByChatID(ctx, chatID); err == nil {
+			return b.sendMessage(ctx, chatID, "Your Telegram is already linked. Use /code to receive a login code.", nil)
+		} else if !errors.Is(err, ErrLinkNotFound) {
+			return err
+		}
+	}
 	if b.verifier == nil {
 		return b.sendMessage(ctx, chatID, "Linking is unavailable right now.", nil)
 	}
@@ -197,6 +218,9 @@ func (b *Bot) handleLinkCode(ctx context.Context, chatID int64, token string) er
 		if errors.Is(err, ErrInvalidToken) {
 			b.logger.Info("invalid verification token", slog.Int64("chat_id", chatID))
 			return b.sendMessage(ctx, chatID, "Invalid or expired link code. Please request a new one in the app.", nil)
+		}
+		if errors.Is(err, ErrAlreadyLinked) {
+			return b.sendMessage(ctx, chatID, "Your Telegram is already linked. Use /code to receive a login code.", nil)
 		}
 		b.logger.Error("verification failed", slog.Int64("chat_id", chatID), slog.String("error", err.Error()))
 		return fmt.Errorf("telegram verification failed: %w", err)

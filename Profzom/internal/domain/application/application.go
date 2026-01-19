@@ -10,6 +10,7 @@ type Status string
 
 const (
 	StatusApplied  Status = "applied"
+	StatusInReview Status = "in_review"
 	StatusInvited  Status = "invited"
 	StatusRejected Status = "rejected"
 	StatusAccepted Status = "accepted"

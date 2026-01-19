@@ -57,8 +57,17 @@ func (r *Router) baseHandler() http.Handler {
 		case req.Method == http.MethodPost && path == "/auth/register":
 			r.deps.AuthHandler.Register(w, req)
 			return
+		case req.Method == http.MethodPost && path == "/auth/refresh":
+			r.deps.AuthHandler.Refresh(w, req)
+			return
+		case req.Method == http.MethodPost && path == "/auth/switch-role":
+			r.deps.AuthHandler.SwitchRole(w, req)
+			return
 		case req.Method == http.MethodPost && path == "/auth/verify-code":
 			r.deps.AuthHandler.VerifyOTP(w, req)
+			return
+		case req.Method == http.MethodPost && path == "/auth/logout":
+			r.deps.AuthHandler.Logout(w, req)
 			return
 		case req.Method == http.MethodGet && path == "/vacancies":
 			r.deps.VacancyHandler.ListPublished(w, req)
@@ -87,11 +96,17 @@ func (r *Router) handleProtected(w http.ResponseWriter, req *http.Request) {
 	case req.Method == http.MethodPatch && path == "/users/role":
 		r.deps.UserHandler.SetRole(w, req)
 		return
+	case req.Method == http.MethodGet && path == "/students/profile":
+		httpmw.RequireRole(user.RoleStudent)(http.HandlerFunc(r.deps.ProfileHandler.GetStudent)).ServeHTTP(w, req)
+		return
 	case req.Method == http.MethodPost && path == "/students/profile":
 		httpmw.RequireRole(user.RoleStudent)(http.HandlerFunc(r.deps.ProfileHandler.UpsertStudent)).ServeHTTP(w, req)
 		return
 	case req.Method == http.MethodPut && path == "/students/profile":
 		httpmw.RequireRole(user.RoleStudent)(http.HandlerFunc(r.deps.ProfileHandler.UpsertStudent)).ServeHTTP(w, req)
+		return
+	case req.Method == http.MethodGet && path == "/companies/profile":
+		httpmw.RequireRole(user.RoleCompany)(http.HandlerFunc(r.deps.ProfileHandler.GetCompany)).ServeHTTP(w, req)
 		return
 	case req.Method == http.MethodPost && path == "/companies/profile":
 		httpmw.RequireRole(user.RoleCompany)(http.HandlerFunc(r.deps.ProfileHandler.UpsertCompany)).ServeHTTP(w, req)
@@ -99,14 +114,32 @@ func (r *Router) handleProtected(w http.ResponseWriter, req *http.Request) {
 	case req.Method == http.MethodPut && path == "/companies/profile":
 		httpmw.RequireRole(user.RoleCompany)(http.HandlerFunc(r.deps.ProfileHandler.UpsertCompany)).ServeHTTP(w, req)
 		return
+	case req.Method == http.MethodGet && path == "/students/vacancies/recommended":
+		httpmw.RequireRole(user.RoleStudent)(http.HandlerFunc(r.deps.VacancyHandler.ListRecommended)).ServeHTTP(w, req)
+		return
+	case req.Method == http.MethodGet && path == "/companies/vacancies":
+		httpmw.RequireRole(user.RoleCompany)(http.HandlerFunc(r.deps.VacancyHandler.ListByCompany)).ServeHTTP(w, req)
+		return
+	case req.Method == http.MethodGet && strings.HasPrefix(path, "/companies/vacancies/"):
+		httpmw.RequireRole(user.RoleCompany)(http.HandlerFunc(r.deps.VacancyHandler.GetByCompany)).ServeHTTP(w, req)
+		return
 	case req.Method == http.MethodPost && path == "/vacancies":
 		httpmw.RequireRole(user.RoleCompany)(http.HandlerFunc(r.deps.VacancyHandler.Create)).ServeHTTP(w, req)
+		return
+	case req.Method == http.MethodPatch && strings.HasPrefix(path, "/vacancies/") && !strings.HasSuffix(path, "/status"):
+		httpmw.RequireRole(user.RoleCompany)(http.HandlerFunc(r.deps.VacancyHandler.Update)).ServeHTTP(w, req)
+		return
+	case req.Method == http.MethodPatch && strings.HasPrefix(path, "/vacancies/") && strings.HasSuffix(path, "/status"):
+		httpmw.RequireRole(user.RoleCompany)(http.HandlerFunc(r.deps.VacancyHandler.UpdateStatus)).ServeHTTP(w, req)
 		return
 	case req.Method == http.MethodPatch && strings.HasPrefix(path, "/applications/") && strings.HasSuffix(path, "/status"):
 		httpmw.RequireRole(user.RoleCompany)(http.HandlerFunc(r.deps.ApplicationHandler.UpdateStatus)).ServeHTTP(w, req)
 		return
 	case req.Method == http.MethodPost && path == "/applications":
 		httpmw.RequireRole(user.RoleStudent)(http.HandlerFunc(r.deps.ApplicationHandler.Apply)).ServeHTTP(w, req)
+		return
+	case req.Method == http.MethodGet && path == "/applications":
+		r.deps.ApplicationHandler.List(w, req)
 		return
 	case req.Method == http.MethodPost && strings.HasSuffix(path, "/messages") && strings.HasPrefix(path, "/applications/"):
 		r.deps.MessageHandler.Send(w, req)

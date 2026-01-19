@@ -24,17 +24,19 @@ type Claims struct {
 	Sub    string   `json:"sub,omitempty"`
 	UserID string   `json:"user_id,omitempty"`
 	Roles  []string `json:"roles"`
+	Role   string   `json:"role,omitempty"`
 	Exp    int64    `json:"exp"`
 	Iat    int64    `json:"iat"`
 }
 
-func (p *JWTProvider) Generate(userID common.UUID, roles []string, ttl time.Duration) (string, time.Time, error) {
+func (p *JWTProvider) Generate(userID common.UUID, roles []string, activeRole string, ttl time.Duration) (string, time.Time, error) {
 	expiresAt := time.Now().UTC().Add(ttl)
 	header := map[string]string{"alg": "HS256", "typ": "JWT"}
 	claims := Claims{
 		Sub:    string(userID),
 		UserID: string(userID),
 		Roles:  roles,
+		Role:   strings.TrimSpace(activeRole),
 		Exp:    expiresAt.Unix(),
 		Iat:    time.Now().UTC().Unix(),
 	}

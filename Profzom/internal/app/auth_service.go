@@ -78,6 +78,7 @@ func (s *AuthService) Register(ctx context.Context) (*RegistrationResult, error)
 	if err != nil {
 		return nil, err
 	}
+	_ = s.analytics.Create(ctx, analytics.Event{Name: "auth.registered", UserID: &account.ID, Payload: analyticsPayload(ctx, map[string]string{"user_id": account.ID.String()})})
 	if s.otpBot == nil {
 		return nil, common.NewError(common.CodeInternal, "otp bot client not configured", nil)
 	}
@@ -146,7 +147,7 @@ func (s *AuthService) RequestOTPByTelegram(ctx context.Context, chatID int64) (*
 	return &OTPRequestPayload{Code: code, ExpiresAt: expiresAt}, nil
 }
 
-func (s *AuthService) VerifyOTP(ctx context.Context, userID, code string) (*auth.TokenPair, *user.User, bool, error) {
+func (s *AuthService) VerifyOTP(ctx context.Context, userID, code, role string) (*auth.TokenPair, *user.User, bool, error) {
 	ok, err := s.otp.VerifyCode(ctx, userID, code, time.Now().UTC().Unix())
 	if err != nil {
 		return nil, nil, false, err
@@ -168,16 +169,39 @@ func (s *AuthService) VerifyOTP(ctx context.Context, userID, code string) (*auth
 		return nil, nil, false, err
 	}
 	isNewUser := len(account.Roles) == 0
-	pair, err := s.issueTokens(ctx, account)
+	var activeRole user.Role
+	if isNewUser {
+		normalized, err := normalizeRoleValue(role)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if err := s.users.SetRoles(ctx, account.ID, []user.Role{normalized}); err != nil {
+			return nil, nil, false, err
+		}
+		account.Roles = []user.Role{normalized}
+		activeRole = normalized
+		_ = s.analytics.Create(ctx, analytics.Event{Name: "user.role_selected", UserID: &account.ID, Payload: analyticsPayload(ctx, map[string]string{"role": string(normalized)})})
+	} else {
+		activeRole, err = normalizeRoleSelection(role, account.Roles)
+		if err != nil {
+			return nil, nil, false, err
+		}
+	}
+	pair, err := s.issueTokens(ctx, account, activeRole)
 	if err != nil {
 		return nil, nil, false, err
 	}
-	_ = s.analytics.Create(ctx, analytics.Event{Name: "auth.logged_in", UserID: &account.ID, Payload: analyticsPayload(ctx, map[string]string{"user_id": account.ID.String()})})
+	payload := map[string]string{"user_id": account.ID.String()}
+	if activeRole != "" {
+		payload["role"] = string(activeRole)
+	}
+	_ = s.analytics.Create(ctx, analytics.Event{Name: "auth.otp_verified", UserID: &account.ID, Payload: analyticsPayload(ctx, payload)})
+	_ = s.analytics.Create(ctx, analytics.Event{Name: "auth.logged_in", UserID: &account.ID, Payload: analyticsPayload(ctx, payload)})
 	s.logInfo(fmt.Sprintf("user logged in user_id=%s", account.ID))
 	return pair, account, isNewUser, nil
 }
 
-func (s *AuthService) VerifyOTPByTelegram(ctx context.Context, chatID int64, code string) (*auth.TokenPair, *user.User, bool, error) {
+func (s *AuthService) VerifyOTPByTelegram(ctx context.Context, chatID int64, code, role string) (*auth.TokenPair, *user.User, bool, error) {
 	if s.telegramLinks == nil {
 		return nil, nil, false, common.NewError(common.CodeInternal, "telegram link repository not configured", nil)
 	}
@@ -192,44 +216,67 @@ func (s *AuthService) VerifyOTPByTelegram(ctx context.Context, chatID int64, cod
 	if userID == "" {
 		return nil, nil, false, common.NewError(common.CodeTelegramNotLinked, "telegram not linked", nil)
 	}
-	return s.VerifyOTP(ctx, userID, code)
+	return s.VerifyOTP(ctx, userID, code, role)
 }
 
-func (s *AuthService) Refresh(ctx context.Context, token string) (*auth.TokenPair, error) {
+func (s *AuthService) Refresh(ctx context.Context, token, role string) (*auth.TokenPair, *user.User, error) {
 	stored, err := s.refreshTokens.GetByToken(ctx, token)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if stored.RevokedAt != nil {
-		return nil, common.NewError(common.CodeUnauthorized, "refresh token revoked", nil)
+		return nil, nil, common.NewError(common.CodeUnauthorized, "refresh token revoked", nil)
 	}
 	if stored.ExpiresAt.Before(time.Now().UTC()) {
-		return nil, common.NewError(common.CodeUnauthorized, "refresh token expired", nil)
+		return nil, nil, common.NewError(common.CodeUnauthorized, "refresh token expired", nil)
 	}
 	account, err := s.users.GetByID(ctx, stored.UserID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	requestedRole := strings.TrimSpace(role)
+	activeRole := strings.TrimSpace(stored.Role)
+	if requestedRole != "" {
+		activeRole = requestedRole
+	}
+	normalizedRole, err := normalizeRoleSelection(activeRole, account.Roles)
+	if err != nil {
+		return nil, nil, err
 	}
 	if err := s.refreshTokens.Revoke(ctx, token, time.Now().UTC().Unix()); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return s.issueTokens(ctx, account)
+	pair, err := s.issueTokens(ctx, account, normalizedRole)
+	if err != nil {
+		return nil, nil, err
+	}
+	payload := map[string]string{"user_id": account.ID.String()}
+	if normalizedRole != "" {
+		payload["role"] = string(normalizedRole)
+	}
+	_ = s.analytics.Create(ctx, analytics.Event{Name: "auth.token_refreshed", UserID: &account.ID, Payload: analyticsPayload(ctx, payload)})
+	return pair, account, nil
 }
 
 func (s *AuthService) Logout(ctx context.Context, token string) error {
 	err := s.refreshTokens.Revoke(ctx, token, time.Now().UTC().Unix())
 	if err == nil {
 		s.logInfo("user logged out")
+		_ = s.analytics.Create(ctx, analytics.Event{Name: "auth.logged_out", Payload: analyticsPayload(ctx, nil)})
 	}
 	return err
 }
 
-func (s *AuthService) issueTokens(ctx context.Context, account *user.User) (*auth.TokenPair, error) {
+func (s *AuthService) issueTokens(ctx context.Context, account *user.User, activeRole user.Role) (*auth.TokenPair, error) {
 	roles := make([]string, len(account.Roles))
 	for i, role := range account.Roles {
 		roles[i] = string(role)
 	}
-	accessToken, expiresAt, err := s.jwtProvider.Generate(account.ID, roles, s.accessTTL)
+	selectedRole := string(activeRole)
+	if selectedRole == "" && len(account.Roles) == 1 {
+		selectedRole = string(account.Roles[0])
+	}
+	accessToken, expiresAt, err := s.jwtProvider.Generate(account.ID, roles, selectedRole, s.accessTTL)
 	if err != nil {
 		return nil, common.NewError(common.CodeInternal, "failed to generate access token", err)
 	}
@@ -241,6 +288,7 @@ func (s *AuthService) issueTokens(ctx context.Context, account *user.User) (*aut
 		ID:        common.NewUUID(),
 		UserID:    account.ID,
 		Token:     refreshValue,
+		Role:      selectedRole,
 		ExpiresAt: time.Now().UTC().Add(s.refreshTTL),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -281,6 +329,41 @@ func generateLinkCode() (string, error) {
 		code[i] = alphabet[value.Int64()]
 	}
 	return linkCodePrefix + string(code), nil
+}
+
+func normalizeRoleSelection(value string, roles []user.Role) (user.Role, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		if len(roles) == 1 {
+			return roles[0], nil
+		}
+		if len(roles) > 1 {
+			return "", common.NewValidationError("invalid role", map[string]string{"role": "role is required when multiple roles are assigned"})
+		}
+		return "", nil
+	}
+	normalized := user.Role(strings.ToLower(trimmed))
+	if normalized != user.RoleStudent && normalized != user.RoleCompany {
+		return "", common.NewValidationError("invalid role", map[string]string{"role": "role must be student or company"})
+	}
+	for _, role := range roles {
+		if role == normalized {
+			return normalized, nil
+		}
+	}
+	return "", common.NewValidationError("invalid role", map[string]string{"role": "role not assigned to user"})
+}
+
+func normalizeRoleValue(value string) (user.Role, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", common.NewValidationError("invalid role", map[string]string{"role": "role is required"})
+	}
+	normalized := user.Role(strings.ToLower(trimmed))
+	if normalized != user.RoleStudent && normalized != user.RoleCompany {
+		return "", common.NewValidationError("invalid role", map[string]string{"role": "role must be student or company"})
+	}
+	return normalized, nil
 }
 
 func (s *AuthService) logInfo(msg string) {

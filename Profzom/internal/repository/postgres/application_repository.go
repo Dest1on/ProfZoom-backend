@@ -131,5 +131,8 @@ func normalizeStatus(status application.Status) application.Status {
 	if normalized == "interview" {
 		return application.StatusInvited
 	}
+	if normalized == "review" || normalized == "in_review" {
+		return application.StatusInReview
+	}
 	return normalized
 }

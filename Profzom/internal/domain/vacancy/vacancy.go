@@ -11,6 +11,8 @@ type Status string
 const (
 	StatusDraft     Status = "draft"
 	StatusPublished Status = "published"
+	StatusHidden    Status = "hidden"
+	StatusClosed    Status = "closed"
 )
 
 type Vacancy struct {

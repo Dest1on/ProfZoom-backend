@@ -391,7 +391,7 @@ func TestAuthServiceVerifyOTP_Success(t *testing.T) {
 		requestedAt:  time.Now().UTC().Unix(),
 	}
 
-	pair, _, isNewUser, err := service.VerifyOTP(context.Background(), account.ID.String(), code)
+	pair, accountAfter, isNewUser, err := service.VerifyOTP(context.Background(), account.ID.String(), code, "student")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -400,6 +400,9 @@ func TestAuthServiceVerifyOTP_Success(t *testing.T) {
 	}
 	if !isNewUser {
 		t.Fatal("expected is_new_user to be true")
+	}
+	if accountAfter == nil || len(accountAfter.Roles) != 1 || accountAfter.Roles[0] != user.RoleStudent {
+		t.Fatal("expected student role to be assigned")
 	}
 	if _, ok := otpRepo.entries[account.ID.String()]; ok {
 		t.Fatal("expected otp to be invalidated")
@@ -425,7 +428,7 @@ func TestAuthServiceVerifyOTP_Expired(t *testing.T) {
 		requestedAt:  time.Now().UTC().Unix(),
 	}
 
-	_, _, _, err = service.VerifyOTP(context.Background(), account.ID.String(), code)
+	_, _, _, err = service.VerifyOTP(context.Background(), account.ID.String(), code, "")
 	if !common.Is(err, common.CodeUnauthorized) {
 		t.Fatalf("expected unauthorized error, got %v", err)
 	}
@@ -452,7 +455,7 @@ func TestAuthServiceVerifyOTP_AttemptsExceeded(t *testing.T) {
 		requestedAt:  time.Now().UTC().Unix(),
 	}
 
-	_, _, _, err = service.VerifyOTP(context.Background(), account.ID.String(), "123456")
+	_, _, _, err = service.VerifyOTP(context.Background(), account.ID.String(), "123456", "")
 	if !common.Is(err, common.CodeUnauthorized) {
 		t.Fatalf("expected unauthorized error, got %v", err)
 	}
@@ -481,7 +484,7 @@ func TestAuthServiceVerifyOTPByTelegram(t *testing.T) {
 		requestedAt:  time.Now().UTC().Unix(),
 	}
 
-	pair, _, isNewUser, err := service.VerifyOTPByTelegram(context.Background(), 7, "123456")
+	pair, accountAfter, isNewUser, err := service.VerifyOTPByTelegram(context.Background(), 7, "123456", "student")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -490,6 +493,9 @@ func TestAuthServiceVerifyOTPByTelegram(t *testing.T) {
 	}
 	if !isNewUser {
 		t.Fatal("expected is_new_user to be true")
+	}
+	if accountAfter == nil || len(accountAfter.Roles) != 1 || accountAfter.Roles[0] != user.RoleStudent {
+		t.Fatal("expected student role to be assigned")
 	}
 }
 

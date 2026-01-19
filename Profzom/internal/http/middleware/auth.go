@@ -16,6 +16,7 @@ type contextKey string
 const (
 	ContextUserIDKey contextKey = "user_id"
 	ContextRolesKey  contextKey = "roles"
+	ContextRoleKey   contextKey = "role"
 )
 
 type AuthMiddleware struct {
@@ -52,8 +53,25 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 		for _, role := range claims.Roles {
 			roles = append(roles, user.Role(role))
 		}
+		activeRole := strings.ToLower(strings.TrimSpace(claims.Role))
+		if activeRole == "" && len(roles) == 1 {
+			activeRole = strings.ToLower(string(roles[0]))
+		}
+		if activeRole != "" {
+			found := false
+			for _, role := range roles {
+				if strings.ToLower(string(role)) == activeRole {
+					found = true
+					break
+				}
+			}
+			if !found {
+				activeRole = ""
+			}
+		}
 		ctx := context.WithValue(r.Context(), ContextUserIDKey, userID)
 		ctx = context.WithValue(ctx, ContextRolesKey, roles)
+		ctx = context.WithValue(ctx, ContextRoleKey, user.Role(activeRole))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -61,18 +79,20 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 func RequireRole(role user.Role) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			roles, ok := r.Context().Value(ContextRolesKey).([]user.Role)
+			activeRole, ok := r.Context().Value(ContextRoleKey).(user.Role)
 			if !ok {
-				response.Error(w, common.NewError(common.CodeForbidden, "roles not found", nil))
+				response.Error(w, common.NewError(common.CodeForbidden, "role not found", nil))
 				return
 			}
-			for _, userRole := range roles {
-				if userRole == role {
-					next.ServeHTTP(w, r)
-					return
-				}
+			if activeRole == "" {
+				response.Error(w, common.NewError(common.CodeForbidden, "role not selected", nil))
+				return
 			}
-			response.Error(w, common.NewError(common.CodeForbidden, "insufficient role", nil))
+			if activeRole != role {
+				response.Error(w, common.NewError(common.CodeForbidden, "insufficient role", nil))
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -80,4 +100,9 @@ func RequireRole(role user.Role) func(http.Handler) http.Handler {
 func UserIDFromContext(ctx context.Context) (common.UUID, bool) {
 	id, ok := ctx.Value(ContextUserIDKey).(common.UUID)
 	return id, ok
+}
+
+func ActiveRoleFromContext(ctx context.Context) (user.Role, bool) {
+	role, ok := ctx.Value(ContextRoleKey).(user.Role)
+	return role, ok
 }

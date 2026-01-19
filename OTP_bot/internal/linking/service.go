@@ -184,6 +184,13 @@ func (l *TelegramLinker) VerifyAndLink(ctx context.Context, token string, chatID
 	if token == "" {
 		return telegram.LinkResult{}, telegram.ErrInvalidToken
 	}
+	if l.linkStore != nil && chatID > 0 {
+		if _, err := l.linkStore.GetByChatID(ctx, chatID); err == nil {
+			return telegram.LinkResult{}, telegram.ErrAlreadyLinked
+		} else if !errors.Is(err, ErrTelegramLinkNotFound) {
+			return telegram.LinkResult{}, err
+		}
+	}
 	stored, err := l.store.Consume(ctx, hashToken(token, l.hashSecret))
 	if err != nil {
 		if errors.Is(err, ErrLinkTokenNotFound) {
@@ -194,6 +201,26 @@ func (l *TelegramLinker) VerifyAndLink(ctx context.Context, token string, chatID
 	if l.verifyTime && l.clock().After(stored.ExpiresAt.Add(l.maxSkew)) {
 		return telegram.LinkResult{}, telegram.ErrInvalidToken
 	}
+	if l.linkStore != nil && stored.UserID != "" {
+		if existing, err := l.linkStore.GetByUserID(ctx, stored.UserID); err == nil {
+			if existing.TelegramChatID != chatID {
+				return telegram.LinkResult{}, telegram.ErrAlreadyLinked
+			}
+			return telegram.LinkResult{}, telegram.ErrAlreadyLinked
+		} else if !errors.Is(err, ErrTelegramLinkNotFound) {
+			return telegram.LinkResult{}, err
+		}
+	}
+	if l.linkStore != nil && stored.Phone != "" {
+		if existing, err := l.linkStore.GetByPhone(ctx, stored.Phone); err == nil {
+			if existing.TelegramChatID != chatID {
+				return telegram.LinkResult{}, telegram.ErrAlreadyLinked
+			}
+			return telegram.LinkResult{}, telegram.ErrAlreadyLinked
+		} else if !errors.Is(err, ErrTelegramLinkNotFound) {
+			return telegram.LinkResult{}, err
+		}
+	}
 
 	link := TelegramLink{
 		UserID:         stored.UserID,
@@ -202,6 +229,9 @@ func (l *TelegramLinker) VerifyAndLink(ctx context.Context, token string, chatID
 		VerifiedAt:     l.clock(),
 	}
 	if err := l.linkStore.LinkChat(ctx, link); err != nil {
+		if errors.Is(err, ErrTelegramLinkExists) {
+			return telegram.LinkResult{}, telegram.ErrAlreadyLinked
+		}
 		return telegram.LinkResult{}, err
 	}
 

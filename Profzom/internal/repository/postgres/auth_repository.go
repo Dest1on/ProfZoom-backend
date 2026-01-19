@@ -115,9 +115,9 @@ func NewRefreshTokenRepository(db *sql.DB) *RefreshTokenRepository {
 
 func (r *RefreshTokenRepository) Store(ctx context.Context, token auth.RefreshToken) error {
 	hash := hashToken(token.Token)
-	_, err := r.db.ExecContext(ctx, `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5)`,
-		token.ID, token.UserID, hash, token.ExpiresAt, token.CreatedAt)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO refresh_tokens (id, user_id, token_hash, role, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		token.ID, token.UserID, hash, token.Role, token.ExpiresAt, token.CreatedAt)
 	if err != nil {
 		return common.NewError(common.CodeInternal, "failed to store refresh token", err)
 	}
@@ -126,10 +126,10 @@ func (r *RefreshTokenRepository) Store(ctx context.Context, token auth.RefreshTo
 
 func (r *RefreshTokenRepository) GetByToken(ctx context.Context, token string) (*auth.RefreshToken, error) {
 	hash := hashToken(token)
-	row := r.db.QueryRowContext(ctx, `SELECT id, user_id, token_hash, expires_at, created_at, revoked_at FROM refresh_tokens WHERE token_hash = $1`, hash)
+	row := r.db.QueryRowContext(ctx, `SELECT id, user_id, token_hash, role, expires_at, created_at, revoked_at FROM refresh_tokens WHERE token_hash = $1`, hash)
 	var rt auth.RefreshToken
 	var tokenHash string
-	if err := row.Scan(&rt.ID, &rt.UserID, &tokenHash, &rt.ExpiresAt, &rt.CreatedAt, &rt.RevokedAt); err != nil {
+	if err := row.Scan(&rt.ID, &rt.UserID, &tokenHash, &rt.Role, &rt.ExpiresAt, &rt.CreatedAt, &rt.RevokedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, common.NewError(common.CodeNotFound, "refresh token not found", err)
 		}

@@ -64,7 +64,11 @@ func Run() error {
 	linker := linking.NewTelegramLinker(linkTokenStore, linkStore, hashSecret)
 	linkRegistrar := linking.NewLinkTokenRegistrar(linkTokenStore, cfg.LinkTokenTTL, hashSecret)
 	botLinkStore := linking.NewBotLinkStore(linkStore)
-	bot := telegram.NewBot(telegramClient, linker, botLinkStore, apiClient, logger)
+	var inboundLimiter ratelimit.Limiter
+	if cfg.TelegramInboundRateLimit > 0 {
+		inboundLimiter = ratelimit.NewMemoryLimiter(cfg.TelegramInboundRateLimit, time.Minute)
+	}
+	bot := telegram.NewBot(telegramClient, linker, botLinkStore, apiClient, inboundLimiter, logger)
 	webhookHandler := telegram.NewWebhookHandler(bot, cfg.WebhookSecret, logger)
 	var poller *telegram.Poller
 	if cfg.TelegramPollingEnabled {

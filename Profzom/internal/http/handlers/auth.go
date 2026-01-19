@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -11,6 +10,7 @@ import (
 	"profzom/internal/app"
 	"profzom/internal/common"
 	"profzom/internal/domain/auth"
+	"profzom/internal/domain/user"
 	"profzom/internal/http/middleware"
 	"profzom/internal/http/response"
 )
@@ -31,19 +31,25 @@ type registerResponse struct {
 }
 
 type verifyOTPRequest struct {
-	UserID     string          `json:"user_id"`
-	TelegramID int64           `json:"telegram_id,omitempty"`
-	Code       string          `json:"code"`
-	Role       json.RawMessage `json:"role,omitempty"`
+	UserID     string `json:"user_id"`
+	TelegramID int64  `json:"telegram_id,omitempty"`
+	Code       string `json:"code"`
+	Role       string `json:"role,omitempty"`
 }
 
 type verifyResponse struct {
-	Token     string `json:"token"`
-	IsNewUser bool   `json:"is_new_user"`
+	Token        string   `json:"token"`
+	AccessToken  string   `json:"access_token"`
+	RefreshToken string   `json:"refresh_token"`
+	ExpiresAt    string   `json:"expires_at"`
+	IsNewUser    bool     `json:"is_new_user"`
+	Role         string   `json:"role,omitempty"`
+	Roles        []string `json:"roles,omitempty"`
 }
 
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
+	Role         string `json:"role,omitempty"`
 }
 
 type requestOTPByTelegramRequest struct {
@@ -108,10 +114,8 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(req.UserID)
 	telegramID := req.TelegramID
 	code := strings.TrimSpace(req.Code)
+	role := strings.ToLower(strings.TrimSpace(req.Role))
 	fields := map[string]string{}
-	if len(req.Role) > 0 {
-		fields["role"] = "role is not allowed"
-	}
 	if userID != "" && telegramID != 0 {
 		fields["user_id"] = "user_id is not allowed when telegram_id is provided"
 		fields["telegram_id"] = "telegram_id is not allowed when user_id is provided"
@@ -132,6 +136,9 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		fields["code"] = "code is required"
 	} else if !otpPattern.MatchString(code) {
 		fields["code"] = "invalid code format"
+	}
+	if role != "" && role != string(user.RoleStudent) && role != string(user.RoleCompany) {
+		fields["role"] = "role must be student or company"
 	}
 	if len(fields) > 0 {
 		response.Error(w, common.NewValidationError("invalid request", fields))
@@ -160,18 +167,37 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	var (
 		pair      *auth.TokenPair
 		isNewUser bool
+		account   *user.User
 		err       error
 	)
 	if telegramID != 0 {
-		pair, _, isNewUser, err = h.auth.VerifyOTPByTelegram(r.Context(), telegramID, code)
+		pair, account, isNewUser, err = h.auth.VerifyOTPByTelegram(r.Context(), telegramID, code, role)
 	} else {
-		pair, _, isNewUser, err = h.auth.VerifyOTP(r.Context(), userID, code)
+		pair, account, isNewUser, err = h.auth.VerifyOTP(r.Context(), userID, code, role)
 	}
 	if err != nil {
 		response.Error(w, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, verifyResponse{Token: pair.AccessToken, IsNewUser: isNewUser})
+	roles := []string{}
+	if account != nil {
+		for _, item := range account.Roles {
+			roles = append(roles, string(item))
+		}
+	}
+	respRole := role
+	if respRole == "" && len(roles) == 1 {
+		respRole = roles[0]
+	}
+	response.JSON(w, http.StatusOK, verifyResponse{
+		Token:        pair.AccessToken,
+		AccessToken:  pair.AccessToken,
+		RefreshToken: pair.RefreshToken,
+		ExpiresAt:    pair.ExpiresAt.Format(time.RFC3339),
+		IsNewUser:    isNewUser,
+		Role:         respRole,
+		Roles:        roles,
+	})
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -180,12 +206,76 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, err)
 		return
 	}
-	pair, err := h.auth.Refresh(r.Context(), req.RefreshToken)
+	if strings.TrimSpace(req.RefreshToken) == "" {
+		response.Error(w, common.NewValidationError("invalid request", map[string]string{"refresh_token": "refresh_token is required"}))
+		return
+	}
+	role := strings.ToLower(strings.TrimSpace(req.Role))
+	if role != "" && role != string(user.RoleStudent) && role != string(user.RoleCompany) {
+		response.Error(w, common.NewValidationError("invalid request", map[string]string{"role": "role must be student or company"}))
+		return
+	}
+	pair, account, err := h.auth.Refresh(r.Context(), req.RefreshToken, role)
 	if err != nil {
 		response.Error(w, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, map[string]string{"access_token": pair.AccessToken, "refresh_token": pair.RefreshToken, "expires_at": pair.ExpiresAt.Format(time.RFC3339)})
+	roles := []string{}
+	if account != nil {
+		for _, item := range account.Roles {
+			roles = append(roles, string(item))
+		}
+	}
+	respRole := role
+	if respRole == "" && len(roles) == 1 {
+		respRole = roles[0]
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"access_token":  pair.AccessToken,
+		"refresh_token": pair.RefreshToken,
+		"expires_at":    pair.ExpiresAt.Format(time.RFC3339),
+		"role":          respRole,
+		"roles":         roles,
+	})
+}
+
+func (h *AuthHandler) SwitchRole(w http.ResponseWriter, r *http.Request) {
+	var req refreshRequest
+	if err := decodeJSON(r, &req); err != nil {
+		response.Error(w, err)
+		return
+	}
+	if strings.TrimSpace(req.RefreshToken) == "" {
+		response.Error(w, common.NewValidationError("invalid request", map[string]string{"refresh_token": "refresh_token is required"}))
+		return
+	}
+	role := strings.ToLower(strings.TrimSpace(req.Role))
+	if role == "" {
+		response.Error(w, common.NewValidationError("invalid request", map[string]string{"role": "role is required"}))
+		return
+	}
+	if role != string(user.RoleStudent) && role != string(user.RoleCompany) {
+		response.Error(w, common.NewValidationError("invalid request", map[string]string{"role": "role must be student or company"}))
+		return
+	}
+	pair, account, err := h.auth.Refresh(r.Context(), req.RefreshToken, role)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	roles := []string{}
+	if account != nil {
+		for _, item := range account.Roles {
+			roles = append(roles, string(item))
+		}
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"access_token":  pair.AccessToken,
+		"refresh_token": pair.RefreshToken,
+		"expires_at":    pair.ExpiresAt.Format(time.RFC3339),
+		"role":          role,
+		"roles":         roles,
+	})
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {

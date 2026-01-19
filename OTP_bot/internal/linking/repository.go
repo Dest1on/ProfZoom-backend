@@ -84,6 +84,7 @@ type TelegramLinkStore interface {
 
 // ErrTelegramLinkNotFound сообщает об отсутствии связи с чатом.
 var ErrTelegramLinkNotFound = errors.New("telegram link not found")
+var ErrTelegramLinkExists = errors.New("telegram link already exists")
 
 // MemoryTelegramLinkStore хранит связи в памяти.
 type MemoryTelegramLinkStore struct {
@@ -138,23 +139,16 @@ func (s *MemoryTelegramLinkStore) GetByChatID(_ context.Context, chatID int64) (
 func (s *MemoryTelegramLinkStore) LinkChat(_ context.Context, link TelegramLink) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if existing, ok := s.users[link.UserID]; ok {
-		if existing.Phone != "" {
-			delete(s.links, existing.Phone)
-		}
-		delete(s.chats, existing.TelegramChatID)
+	if _, ok := s.users[link.UserID]; ok {
+		return ErrTelegramLinkExists
 	}
 	if link.Phone != "" {
-		if existing, ok := s.links[link.Phone]; ok {
-			delete(s.chats, existing.TelegramChatID)
-			delete(s.users, existing.UserID)
+		if _, ok := s.links[link.Phone]; ok {
+			return ErrTelegramLinkExists
 		}
 	}
-	if existing, ok := s.chats[link.TelegramChatID]; ok {
-		if existing.Phone != "" {
-			delete(s.links, existing.Phone)
-		}
-		delete(s.users, existing.UserID)
+	if _, ok := s.chats[link.TelegramChatID]; ok {
+		return ErrTelegramLinkExists
 	}
 	if link.Phone != "" {
 		s.links[link.Phone] = link

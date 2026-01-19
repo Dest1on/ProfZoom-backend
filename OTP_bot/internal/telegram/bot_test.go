@@ -52,7 +52,7 @@ func (f *fakeOTPClient) VerifyOTP(ctx context.Context, chatID int64, code string
 func TestBotHandleStartSuccess(t *testing.T) {
 	sender := &fakeSender{}
 	verifier := fakeVerifier{result: LinkResult{UserID: "user-1"}}
-	bot := NewBot(sender, verifier, nil, nil, slog.Default())
+	bot := NewBot(sender, verifier, nil, nil, nil, slog.Default())
 
 	update := Update{Message: &Message{Chat: Chat{ID: 42, Type: "private"}, Text: "/start PZ-ABC12345"}}
 	if err := bot.HandleUpdate(context.Background(), update); err != nil {
@@ -69,7 +69,7 @@ func TestBotHandleStartSuccess(t *testing.T) {
 func TestBotHandleStartInvalidToken(t *testing.T) {
 	sender := &fakeSender{}
 	verifier := fakeVerifier{err: ErrInvalidToken}
-	bot := NewBot(sender, verifier, nil, nil, slog.Default())
+	bot := NewBot(sender, verifier, nil, nil, nil, slog.Default())
 
 	update := Update{Message: &Message{Chat: Chat{ID: 99, Type: "private"}, Text: "/start PZ-INVALID"}}
 	if err := bot.HandleUpdate(context.Background(), update); err != nil {
@@ -83,7 +83,7 @@ func TestBotHandleStartInvalidToken(t *testing.T) {
 func TestBotHandleStartBackendError(t *testing.T) {
 	sender := &fakeSender{}
 	verifier := fakeVerifier{err: errors.New("backend down")}
-	bot := NewBot(sender, verifier, nil, nil, slog.Default())
+	bot := NewBot(sender, verifier, nil, nil, nil, slog.Default())
 
 	update := Update{Message: &Message{Chat: Chat{ID: 7, Type: "private"}, Text: "/start PZ-ABC12345"}}
 	if err := bot.HandleUpdate(context.Background(), update); err == nil {
@@ -96,7 +96,7 @@ func TestBotHandleCodeRequest(t *testing.T) {
 	otpClient := &fakeOTPClient{
 		requestResp: OTPRequest{Code: "123456", ExpiresAt: time.Now().Add(5 * time.Minute)},
 	}
-	bot := NewBot(sender, fakeVerifier{}, nil, otpClient, slog.Default())
+	bot := NewBot(sender, fakeVerifier{}, nil, otpClient, nil, slog.Default())
 
 	update := Update{Message: &Message{Chat: Chat{ID: 11, Type: "private"}, Text: "/code"}}
 	if err := bot.HandleUpdate(context.Background(), update); err != nil {
@@ -113,7 +113,7 @@ func TestBotHandleCodeRequest(t *testing.T) {
 func TestBotHandleCodeVerify(t *testing.T) {
 	sender := &fakeSender{}
 	otpClient := &fakeOTPClient{}
-	bot := NewBot(sender, fakeVerifier{}, nil, otpClient, slog.Default())
+	bot := NewBot(sender, fakeVerifier{}, nil, otpClient, nil, slog.Default())
 
 	update := Update{Message: &Message{Chat: Chat{ID: 22, Type: "private"}, Text: "/code 654321"}}
 	if err := bot.HandleUpdate(context.Background(), update); err != nil {

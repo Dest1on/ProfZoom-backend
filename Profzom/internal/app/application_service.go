@@ -72,14 +72,24 @@ func (s *ApplicationService) UpdateStatus(ctx context.Context, applicationID com
 	}
 	currentStatus := normalizeApplicationStatus(app.Status)
 	nextStatus := normalizeApplicationStatus(application.Status(strings.ToLower(strings.TrimSpace(string(status)))))
+	if !isKnownStatus(nextStatus) {
+		return nil, common.NewValidationError("invalid status", map[string]string{"status": "status must be applied, in_review, invited, accepted, or rejected"})
+	}
+	if nextStatus == currentStatus {
+		updated, err := s.repo.UpdateStatus(ctx, applicationID, nextStatus, feedback)
+		if err != nil {
+			return nil, err
+		}
+		if feedback != "" {
+			_ = s.analytics.Create(ctx, analytics.Event{Name: "application.feedback_updated", UserID: &companyID, Payload: analyticsPayload(ctx, map[string]string{"application_id": updated.ID.String(), "status": string(nextStatus)})})
+		}
+		return updated, nil
+	}
 	if isFinalStatus(currentStatus) {
 		return nil, common.NewError(common.CodeValidation, "application status is final", nil)
 	}
 	if !isAllowedTransition(currentStatus, nextStatus) {
 		return nil, common.NewError(common.CodeValidation, "invalid status transition", nil)
-	}
-	if nextStatus == application.StatusRejected && feedback == "" {
-		return nil, common.NewError(common.CodeValidation, "feedback is required for rejection", nil)
 	}
 	updated, err := s.repo.UpdateStatus(ctx, applicationID, nextStatus, feedback)
 	if err != nil {
@@ -92,7 +102,9 @@ func (s *ApplicationService) UpdateStatus(ctx context.Context, applicationID com
 func isAllowedTransition(from application.Status, to application.Status) bool {
 	switch from {
 	case application.StatusApplied:
-		return to == application.StatusInvited || to == application.StatusRejected
+		return to == application.StatusInReview || to == application.StatusInvited || to == application.StatusRejected || to == application.StatusAccepted
+	case application.StatusInReview:
+		return to == application.StatusInvited || to == application.StatusRejected || to == application.StatusAccepted
 	case application.StatusInvited:
 		return to == application.StatusAccepted || to == application.StatusRejected
 	default:
@@ -109,7 +121,19 @@ func normalizeApplicationStatus(status application.Status) application.Status {
 	if normalized == "interview" {
 		return application.StatusInvited
 	}
+	if normalized == "review" || normalized == "in_review" {
+		return application.StatusInReview
+	}
 	return normalized
+}
+
+func isKnownStatus(status application.Status) bool {
+	switch status {
+	case application.StatusApplied, application.StatusInReview, application.StatusInvited, application.StatusAccepted, application.StatusRejected:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *ApplicationService) ListByStudent(ctx context.Context, studentID common.UUID) ([]application.Application, error) {

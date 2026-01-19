@@ -6,7 +6,8 @@ import (
 	"errors"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
+
 	"otp_bot/internal/linking"
 )
 
@@ -81,27 +82,46 @@ func (s *TelegramLinkStore) GetByChatID(ctx context.Context, chatID int64) (link
 }
 
 func (s *TelegramLinkStore) LinkChat(ctx context.Context, link linking.TelegramLink) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
 	var phoneValue any = link.Phone
 	if link.Phone == "" {
 		phoneValue = nil
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM telegram_links WHERE user_id = $1 OR phone = $2 OR chat_id = $3`, link.UserID, phoneValue, link.TelegramChatID); err != nil {
-		_ = tx.Rollback()
+	if _, err := s.GetByUserID(ctx, link.UserID); err == nil {
+		return linking.ErrTelegramLinkExists
+	} else if !errors.Is(err, linking.ErrTelegramLinkNotFound) {
+		return err
+	}
+	if link.Phone != "" {
+		if _, err := s.GetByPhone(ctx, link.Phone); err == nil {
+			return linking.ErrTelegramLinkExists
+		} else if !errors.Is(err, linking.ErrTelegramLinkNotFound) {
+			return err
+		}
+	}
+	if _, err := s.GetByChatID(ctx, link.TelegramChatID); err == nil {
+		return linking.ErrTelegramLinkExists
+	} else if !errors.Is(err, linking.ErrTelegramLinkNotFound) {
 		return err
 	}
 	const query = `
 		INSERT INTO telegram_links (user_id, phone, chat_id, verified_at)
 		VALUES ($1, $2, $3, $4)
 	`
-	if _, err := tx.ExecContext(ctx, query, link.UserID, phoneValue, link.TelegramChatID, link.VerifiedAt); err != nil {
-		_ = tx.Rollback()
+	if _, err := s.db.ExecContext(ctx, query, link.UserID, phoneValue, link.TelegramChatID, link.VerifiedAt); err != nil {
+		if isUniqueViolation(err) {
+			return linking.ErrTelegramLinkExists
+		}
 		return err
 	}
-	return tx.Commit()
+	return nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pq.Error
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	return false
 }
 
 // TelegramLinkTokenStore хранит токены привязки в Postgres.
