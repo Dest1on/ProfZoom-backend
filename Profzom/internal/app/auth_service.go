@@ -182,9 +182,33 @@ func (s *AuthService) VerifyOTP(ctx context.Context, userID, code, role string) 
 		activeRole = normalized
 		_ = s.analytics.Create(ctx, analytics.Event{Name: "user.role_selected", UserID: &account.ID, Payload: analyticsPayload(ctx, map[string]string{"role": string(normalized)})})
 	} else {
-		activeRole, err = normalizeRoleSelection(role, account.Roles)
-		if err != nil {
-			return nil, nil, false, err
+		trimmedRole := strings.TrimSpace(role)
+		if trimmedRole != "" {
+			normalized, err := normalizeRoleValue(trimmedRole)
+			if err != nil {
+				return nil, nil, false, err
+			}
+			hasRole := false
+			for _, existing := range account.Roles {
+				if existing == normalized {
+					hasRole = true
+					break
+				}
+			}
+			if !hasRole {
+				updatedRoles := append(account.Roles, normalized)
+				if err := s.users.SetRoles(ctx, account.ID, updatedRoles); err != nil {
+					return nil, nil, false, err
+				}
+				account.Roles = updatedRoles
+				_ = s.analytics.Create(ctx, analytics.Event{Name: "user.role_added", UserID: &account.ID, Payload: analyticsPayload(ctx, map[string]string{"role": string(normalized)})})
+			}
+			activeRole = normalized
+		} else {
+			activeRole, err = normalizeRoleSelection(role, account.Roles)
+			if err != nil {
+				return nil, nil, false, err
+			}
 		}
 	}
 	pair, err := s.issueTokens(ctx, account, activeRole)

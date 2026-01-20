@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+type Limiter interface {
+	Allow(key string, limit int, window time.Duration) bool
+}
+
 type RateLimiter struct {
 	mu      sync.Mutex
 	buckets map[string]*rateBucket
@@ -37,11 +41,15 @@ func (r *RateLimiter) Allow(key string, limit int, window time.Duration) bool {
 	return true
 }
 
-func RateLimit(limiter *RateLimiter, keyFn func(*http.Request) string, limit int, window time.Duration) func(http.Handler) http.Handler {
+func RateLimit(limiter Limiter, keyFn func(*http.Request) string, limit int, window time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := keyFn(r)
 			if key == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if limiter == nil {
 				next.ServeHTTP(w, r)
 				return
 			}

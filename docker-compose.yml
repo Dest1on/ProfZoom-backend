@@ -12,6 +12,7 @@ services:
       - ./Profzom/.env
     depends_on:
       - postgres
+      - redis
       - otp-bot
 
   # Мигратор для основного сервиса
@@ -48,6 +49,14 @@ services:
       - ./OTP_bot/.env
     ports:
       - "8081:8080"
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7
+    restart: always
+    ports:
+      - "6379:6379"
 
 volumes:
   postgres_data:

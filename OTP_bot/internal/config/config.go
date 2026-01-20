@@ -11,11 +11,14 @@ import (
 // Config хранит конфигурацию времени выполнения для сервиса OTP бота.
 type Config struct {
 	BotToken                    string
+	TelegramWebhookURL          string
+	TelegramWebhookDropPending  bool
 	WebhookSecret               string
 	InternalAuthKey             string
 	APIBaseURL                  string
 	APIInternalKey              string
 	DatabaseURL                 string
+	RedisURL                    string
 	DBDriver                    string
 	Port                        string
 	LogLevel                    string
@@ -56,6 +59,8 @@ func Load() (Config, error) {
 		TelegramPollingDropPending:  boolOr("TELEGRAM_POLLING_DROP_PENDING", true),
 		TelegramPollingDropWebhook:  boolOr("TELEGRAM_POLLING_DROP_WEBHOOK", true),
 		TelegramInboundRateLimit:    inboundRate,
+		TelegramWebhookURL:          envOr("TELEGRAM_WEBHOOK_URL", ""),
+		TelegramWebhookDropPending:  boolOr("TELEGRAM_WEBHOOK_DROP_PENDING", false),
 		APITimeout:                  durationOr("API_TIMEOUT", 5*time.Second),
 		OTPSendPerMin:               otpPerMin,
 		OTPSendIPPerMin:             intOr("OTP_RATE_LIMIT_IP_PER_MIN", otpPerMin),
@@ -65,6 +70,7 @@ func Load() (Config, error) {
 		LinkTokenRateLimitIPPerMin:  intOr("LINK_TOKEN_RATE_LIMIT_IP_PER_MIN", linkTokenPerMin),
 		LinkTokenRateLimitBotPerMin: intOr("LINK_TOKEN_RATE_LIMIT_BOT_PER_MIN", linkTokenPerMin),
 		DBDriver:                    envOr("DB_DRIVER", "postgres"),
+		RedisURL:                    envOr("REDIS_URL", ""),
 	}
 
 	cfg.BotToken = strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))

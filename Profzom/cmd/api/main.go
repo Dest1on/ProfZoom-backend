@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"profzom/internal/app"
 	"profzom/internal/config"
@@ -26,6 +29,29 @@ import (
 func main() {
 	cfg := config.Load()
 	logger := observability.NewLogger()
+	var redisClient *redis.Client
+	if cfg.RedisURL != "" {
+		opts, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			logger.Error("redis url parse failed: " + err.Error())
+		} else {
+			redisClient = redis.NewClient(opts)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if err := redisClient.Ping(ctx).Err(); err != nil {
+				logger.Error("redis ping failed: " + err.Error())
+				_ = redisClient.Close()
+				redisClient = nil
+			}
+		}
+	}
+	if redisClient != nil {
+		defer func() {
+			if err := redisClient.Close(); err != nil {
+				logger.Error(fmt.Sprintf("redis close failed: %v", err))
+			}
+		}()
+	}
 	db := database.NewPostgres(database.PostgresConfig{
 		DSN:             cfg.PostgresDSN,
 		MaxOpenConns:    cfg.DBMaxOpenConns,
@@ -56,7 +82,12 @@ func main() {
 	applicationService := app.NewApplicationService(applicationRepo, vacancyRepo, studentRepo, analyticsRepo)
 	messageService := app.NewMessageService(messageRepo, applicationRepo, vacancyRepo, analyticsRepo)
 
-	rateLimiter := httpmw.NewRateLimiter()
+	var rateLimiter httpmw.Limiter
+	if redisClient != nil {
+		rateLimiter = httpmw.NewRedisLimiter(redisClient)
+	} else {
+		rateLimiter = httpmw.NewRateLimiter()
+	}
 	authHandler := handlers.NewAuthHandler(authService, rateLimiter, cfg.OTPBotInternalKey)
 	userHandler := handlers.NewUserHandler(userService)
 	profileHandler := handlers.NewProfileHandler(profileService)

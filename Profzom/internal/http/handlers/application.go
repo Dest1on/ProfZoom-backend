@@ -15,10 +15,10 @@ import (
 
 type ApplicationHandler struct {
 	applications *app.ApplicationService
-	limiter      *middleware.RateLimiter
+	limiter      middleware.Limiter
 }
 
-func NewApplicationHandler(applications *app.ApplicationService, limiter *middleware.RateLimiter) *ApplicationHandler {
+func NewApplicationHandler(applications *app.ApplicationService, limiter middleware.Limiter) *ApplicationHandler {
 	return &ApplicationHandler{applications: applications, limiter: limiter}
 }
 

@@ -1,7 +1,12 @@
 FROM golang:1.22-alpine AS build
 
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOSUMDB=off
+ENV GOPROXY=$GOPROXY
+ENV GOSUMDB=$GOSUMDB
+
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .

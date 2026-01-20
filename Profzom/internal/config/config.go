@@ -13,6 +13,7 @@ type Config struct {
 	JWTSecret         string
 	OTPBotBaseURL     string
 	OTPBotInternalKey string
+	RedisURL          string
 	AccessTokenTTL    time.Duration
 	RefreshTokenTTL   time.Duration
 	OTPTTL            time.Duration
@@ -30,6 +31,7 @@ func Load() *Config {
 		JWTSecret:         getEnv("JWT_SECRET", ""),
 		OTPBotBaseURL:     getEnv("OTP_BOT_BASE_URL", ""),
 		OTPBotInternalKey: getEnv("OTP_BOT_INTERNAL_KEY", ""),
+		RedisURL:          getEnv("REDIS_URL", ""),
 		AccessTokenTTL:    getDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL:   getDuration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		OTPTTL:            getDuration("OTP_TTL", 5*time.Minute),

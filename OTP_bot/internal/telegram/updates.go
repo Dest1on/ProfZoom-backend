@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -111,6 +112,53 @@ func (c *Client) DeleteWebhook(ctx context.Context, dropPending bool) error {
 	}
 	if !parsed.OK {
 		return fmt.Errorf("telegram delete webhook error: %s", parsed.Description)
+	}
+	return nil
+}
+
+func (c *Client) SetWebhook(ctx context.Context, url, secretToken string, dropPending bool) error {
+	if strings.TrimSpace(url) == "" {
+		return fmt.Errorf("telegram set webhook: url is required")
+	}
+	payload := map[string]any{
+		"url":             url,
+		"allowed_updates": []string{"message"},
+	}
+	if secretToken != "" {
+		payload["secret_token"] = secretToken
+	}
+	if dropPending {
+		payload["drop_pending_updates"] = true
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("telegram set webhook encode: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/bot%s/setWebhook", c.baseURL, c.botToken)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("telegram set webhook request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("telegram set webhook: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return &APIError{StatusCode: resp.StatusCode, Body: string(payload)}
+	}
+
+	var parsed webhookResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return fmt.Errorf("telegram set webhook decode: %w", err)
+	}
+	if !parsed.OK {
+		return fmt.Errorf("telegram set webhook error: %s", parsed.Description)
 	}
 	return nil
 }

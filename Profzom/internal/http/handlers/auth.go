@@ -17,11 +17,11 @@ import (
 
 type AuthHandler struct {
 	auth        *app.AuthService
-	limiter     *middleware.RateLimiter
+	limiter     middleware.Limiter
 	internalKey string
 }
 
-func NewAuthHandler(auth *app.AuthService, limiter *middleware.RateLimiter, internalKey string) *AuthHandler {
+func NewAuthHandler(auth *app.AuthService, limiter middleware.Limiter, internalKey string) *AuthHandler {
 	return &AuthHandler{auth: auth, limiter: limiter, internalKey: internalKey}
 }
 

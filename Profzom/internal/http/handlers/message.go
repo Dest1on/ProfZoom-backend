@@ -13,10 +13,10 @@ import (
 
 type MessageHandler struct {
 	messages *app.MessageService
-	limiter  *middleware.RateLimiter
+	limiter  middleware.Limiter
 }
 
-func NewMessageHandler(messages *app.MessageService, limiter *middleware.RateLimiter) *MessageHandler {
+func NewMessageHandler(messages *app.MessageService, limiter middleware.Limiter) *MessageHandler {
 	return &MessageHandler{messages: messages, limiter: limiter}
 }
 

@@ -41,7 +41,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) baseHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		path := req.URL.Path
+		path := normalizePath(req)
 
 		switch {
 		case req.Method == http.MethodGet && path == "/health":
@@ -90,7 +90,7 @@ func (r *Router) baseHandler() http.Handler {
 }
 
 func (r *Router) handleProtected(w http.ResponseWriter, req *http.Request) {
-	path := req.URL.Path
+	path := normalizePath(req)
 
 	switch {
 	case req.Method == http.MethodPatch && path == "/users/role":
@@ -150,4 +150,17 @@ func (r *Router) handleProtected(w http.ResponseWriter, req *http.Request) {
 	}
 
 	http.NotFound(w, req)
+}
+
+func normalizePath(req *http.Request) string {
+	path := req.URL.Path
+	if strings.HasPrefix(path, "/api/v1") {
+		trimmed := strings.TrimPrefix(path, "/api/v1")
+		if trimmed == "" {
+			trimmed = "/"
+		}
+		req.URL.Path = trimmed
+		path = trimmed
+	}
+	return path
 }
